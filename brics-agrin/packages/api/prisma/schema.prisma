@@ -1,0 +1,447 @@
+// BRICS AgriN — Prisma Schema
+// Database: PostgreSQL 15 with PostGIS extension
+//
+// Design principles:
+//   - Normalized relations — no duplicate business logic in JSON blobs
+//   - Geospatial fields use Unsupported("geometry") with PostGIS raw SQL
+//   - Every table has id (UUID), created_at, updated_at
+//   - Soft-delete via deleted_at where record history matters
+//   - Explicit FK constraints and indexes
+//   - Audit log for security-sensitive mutations
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis, uuid_ossp]
+}
+
+// ─── User & Auth ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  role         UserRole  @default(FARMER)
+  isActive     Boolean   @default(true) @map("is_active")
+  isVerified   Boolean   @default(false) @map("is_verified")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+
+  farmerProfile  FarmerProfile?
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+
+  @@index([email])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+enum UserRole {
+  FARMER
+  ADVISOR
+  ADMIN
+
+  @@map("user_role")
+}
+
+model RefreshToken {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  tokenHash   String   @map("token_hash") @db.VarChar(255)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  userAgent   String?  @map("user_agent") @db.VarChar(500)
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ─── Farmer Profile ──────────────────────────────────────────────────────────
+// Minimal PII. Only data needed to deliver the service.
+
+model FarmerProfile {
+  id           String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId       String      @unique @map("user_id") @db.Uuid
+  country      String      @db.Char(2)  // ISO 3166-1 alpha-2
+  language     String      @db.VarChar(10) // BCP 47
+  farmCategory FarmCategory @map("farm_category")
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  farms Farm[]
+
+  @@index([country])
+  @@map("farmer_profiles")
+}
+
+enum FarmCategory {
+  MARGINAL
+  SMALL
+  SEMI_MEDIUM
+  MEDIUM
+  LARGE
+
+  @@map("farm_category")
+}
+
+// ─── Farm ────────────────────────────────────────────────────────────────────
+
+model Farm {
+  id              String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  farmerProfileId String         @map("farmer_profile_id") @db.Uuid
+  name            String         @db.VarChar(100)
+  // Stored as WGS84 POINT(lon lat) — PostGIS geometry
+  locationLat     Decimal        @map("location_lat") @db.Decimal(9, 6)
+  locationLon     Decimal        @map("location_lon") @db.Decimal(9, 6)
+  areaHectares    Decimal        @map("area_hectares") @db.Decimal(10, 4)
+  farmCategory    FarmCategory   @map("farm_category")
+  country         String         @db.Char(2)
+  irrigationType  IrrigationType @map("irrigation_type")
+  farmingPractice FarmingPractice @map("farming_practice")
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt       DateTime?      @map("deleted_at") @db.Timestamptz
+
+  farmerProfile FarmerProfile    @relation(fields: [farmerProfileId], references: [id], onDelete: Cascade)
+  fields        Field[]
+  advisories    Advisory[]
+
+  @@index([farmerProfileId])
+  @@index([country])
+  @@index([deletedAt])
+  @@map("farms")
+}
+
+enum IrrigationType {
+  RAINFED
+  CANAL
+  DRIP
+  SPRINKLER
+  FLOOD
+  FURROW
+  SUBSURFACE
+
+  @@map("irrigation_type")
+}
+
+enum FarmingPractice {
+  CONVENTIONAL
+  ORGANIC
+  INTEGRATED
+  REGENERATIVE
+  ZERO_TILLAGE
+  MIXED
+
+  @@map("farming_practice")
+}
+
+// ─── Field ───────────────────────────────────────────────────────────────────
+
+model Field {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  farmId       String    @map("farm_id") @db.Uuid
+  name         String    @db.VarChar(100)
+  areaHectares Decimal   @map("area_hectares") @db.Decimal(10, 4)
+  // GeoJSON Polygon stored as JSONB — PostGIS geometry for spatial queries
+  boundaryJson Json?     @map("boundary_json")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+
+  farm             Farm              @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  cropCycles       CropCycle[]
+  soilObservations SoilObservation[]
+  diagnostics      DiseaseDiagnostic[]
+
+  @@index([farmId])
+  @@index([deletedAt])
+  @@map("fields")
+}
+
+// ─── Crop Cycle ──────────────────────────────────────────────────────────────
+
+model CropCycle {
+  id                   String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  fieldId              String          @map("field_id") @db.Uuid
+  cropName             String          @map("crop_name") @db.VarChar(100)
+  cropVariety          String?         @map("crop_variety") @db.VarChar(100)
+  growthStage          CropGrowthStage @map("growth_stage")
+  sowingDate           DateTime        @map("sowing_date") @db.Date
+  expectedHarvestDate  DateTime?       @map("expected_harvest_date") @db.Date
+  actualHarvestDate    DateTime?       @map("actual_harvest_date") @db.Date
+  isActive             Boolean         @default(true) @map("is_active")
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  field      Field      @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  advisories Advisory[]
+  diagnostics DiseaseDiagnostic[]
+
+  @@index([fieldId])
+  @@index([isActive])
+  @@map("crop_cycles")
+}
+
+enum CropGrowthStage {
+  GERMINATION
+  SEEDLING
+  VEGETATIVE
+  TILLERING
+  JOINTING
+  BOOTING
+  HEADING
+  FLOWERING
+  GRAIN_FILLING
+  MATURITY
+  HARVEST
+
+  @@map("crop_growth_stage")
+}
+
+// ─── Soil Observation ────────────────────────────────────────────────────────
+
+model SoilObservation {
+  id                   String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  fieldId              String   @map("field_id") @db.Uuid
+  observedAt           DateTime @map("observed_at") @db.Timestamptz
+  phLevel              Decimal? @map("ph_level") @db.Decimal(4, 2)
+  organicCarbonPercent Decimal? @map("organic_carbon_percent") @db.Decimal(5, 3)
+  nitrogenKgPerHa      Decimal? @map("nitrogen_kg_per_ha") @db.Decimal(8, 2)
+  phosphorusKgPerHa    Decimal? @map("phosphorus_kg_per_ha") @db.Decimal(8, 2)
+  potassiumKgPerHa     Decimal? @map("potassium_kg_per_ha") @db.Decimal(8, 2)
+  moisturePercent      Decimal? @map("moisture_percent") @db.Decimal(5, 2)
+  textureClass         String?  @map("texture_class") @db.VarChar(50)
+  source               String   @db.VarChar(100)
+  dataType             DataType @map("data_type")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  field Field @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@index([fieldId])
+  @@index([observedAt])
+  @@map("soil_observations")
+}
+
+enum DataType {
+  OBSERVED
+  PREDICTED
+  MODEL_DERIVED
+  RULE_BASED
+  AI_GENERATED
+  HISTORICAL
+
+  @@map("data_type")
+}
+
+// ─── Advisory ────────────────────────────────────────────────────────────────
+
+model Advisory {
+  id              String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  farmId          String          @map("farm_id") @db.Uuid
+  cropCycleId     String?         @map("crop_cycle_id") @db.Uuid
+  category        AdvisoryCategory @map("category")
+  recommendation  String          @db.Text
+  reason          String          @db.Text
+  actionTiming    String          @map("action_timing") @db.Text
+  riskAddressed   String          @map("risk_addressed") @db.Text
+  envImpact       String          @map("env_impact") @db.Text
+  confidence      Decimal         @db.Decimal(4, 3)  // 0.000–1.000
+  riskLevel       RiskLevel       @map("risk_level")
+  language        String          @db.VarChar(10)
+  modelVersion    String          @map("model_version") @db.VarChar(50)
+  // Evidence stored as JSONB — structured provenance data
+  evidenceJson    Json            @map("evidence_json")
+  generatedAt     DateTime        @map("generated_at") @db.Timestamptz
+  expiresAt       DateTime        @map("expires_at") @db.Timestamptz
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  farm       Farm       @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  cropCycle  CropCycle? @relation(fields: [cropCycleId], references: [id], onDelete: SetNull)
+
+  @@index([farmId])
+  @@index([cropCycleId])
+  @@index([generatedAt])
+  @@index([expiresAt])
+  @@index([category])
+  @@map("advisories")
+}
+
+enum AdvisoryCategory {
+  IRRIGATION
+  FERTILIZATION
+  PEST_MANAGEMENT
+  DISEASE_MANAGEMENT
+  HARVEST_TIMING
+  SOIL_HEALTH
+  CROP_ROTATION
+  WEATHER_ALERT
+  REGENERATIVE_PRACTICE
+  GENERAL
+
+  @@map("advisory_category")
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@map("risk_level")
+}
+
+// ─── Disease Diagnostic ──────────────────────────────────────────────────────
+
+model DiseaseDiagnostic {
+  id                        String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  farmId                    String           @map("farm_id") @db.Uuid
+  fieldId                   String?          @map("field_id") @db.Uuid
+  cropCycleId               String?          @map("crop_cycle_id") @db.Uuid
+  cropName                  String           @map("crop_name") @db.VarChar(100)
+  growthStage               CropGrowthStage  @map("growth_stage")
+  // Object storage key — never a direct path or URL
+  imageStorageKey           String           @map("image_storage_key") @db.VarChar(500)
+  imageHash                 String           @map("image_hash") @db.Char(64)  // SHA-256
+  status                    DiagnosticStatus @default(PENDING)
+  // Results stored as JSONB with normalized structure
+  conditionsJson            Json?            @map("conditions_json")
+  topConditionName          String?          @map("top_condition_name") @db.VarChar(200)
+  topConditionConfidence    Decimal?         @map("top_condition_confidence") @db.Decimal(4, 3)
+  overallConfidence         Decimal?         @map("overall_confidence") @db.Decimal(4, 3)
+  modelVersion              String?          @map("model_version") @db.VarChar(50)
+  safeNextStepsJson         Json?            @map("safe_next_steps_json")
+  requiresExpertConsult     Boolean          @default(false) @map("requires_expert_consult")
+  notes                     String?          @db.VarChar(1000)
+  diagnosedAt               DateTime?        @map("diagnosed_at") @db.Timestamptz
+  createdAt                 DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                 DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  field      Field?     @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  cropCycle  CropCycle? @relation(fields: [cropCycleId], references: [id], onDelete: SetNull)
+
+  @@index([farmId])
+  @@index([fieldId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("disease_diagnostics")
+}
+
+enum DiagnosticStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  LOW_CONFIDENCE
+  INCONCLUSIVE
+
+  @@map("diagnostic_status")
+}
+
+// ─── Agricultural Data Source Registry ───────────────────────────────────────
+// Tracks which external providers are configured per country
+
+model AgriculturalDataSource {
+  id           String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  country      String     @db.Char(2)
+  providerType ProviderType @map("provider_type")
+  providerKey  String     @map("provider_key") @db.VarChar(100)
+  displayName  String     @map("display_name") @db.VarChar(200)
+  isActive     Boolean    @default(true) @map("is_active")
+  priority     Int        @default(1)   // lower = higher priority
+  metadata     Json?
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([country, providerType, providerKey])
+  @@index([country, providerType, isActive])
+  @@map("agricultural_data_sources")
+}
+
+enum ProviderType {
+  WEATHER
+  SATELLITE
+  SOIL
+  GOVERNMENT
+  BRICS_NETWORK
+
+  @@map("provider_type")
+}
+
+// ─── Model Version Registry ───────────────────────────────────────────────────
+// Audit trail for all ML models used in recommendations and diagnostics
+
+model ModelVersion {
+  id                String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  modelId           String   @map("model_id") @db.VarChar(100)
+  modelType         String   @map("model_type") @db.VarChar(50)  // advisory | diagnostic
+  version           String   @db.VarChar(50)
+  trainingTimestamp DateTime? @map("training_timestamp") @db.Timestamptz
+  dataVersion       String?  @map("data_version") @db.VarChar(50)
+  description       String?  @db.Text
+  isActive          Boolean  @default(true) @map("is_active")
+  deployedAt        DateTime @map("deployed_at") @db.Timestamptz
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([modelId, version])
+  @@index([modelType, isActive])
+  @@map("model_versions")
+}
+
+// ─── Uploaded Image Registry ──────────────────────────────────────────────────
+// Tracks validated image uploads before processing
+
+model UploadedImage {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  storageKey   String    @unique @map("storage_key") @db.VarChar(500)
+  originalName String    @map("original_name") @db.VarChar(255)
+  mimeType     String    @map("mime_type") @db.VarChar(100)
+  sizeBytes    Int       @map("size_bytes")
+  widthPx      Int?      @map("width_px")
+  heightPx     Int?      @map("height_px")
+  fileHash     String    @map("file_hash") @db.Char(64)  // SHA-256
+  uploadedBy   String    @map("uploaded_by") @db.Uuid    // user id
+  isUsed       Boolean   @default(false) @map("is_used")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz
+
+  @@index([uploadedBy])
+  @@index([expiresAt])
+  @@map("uploaded_images")
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+// Security-sensitive mutation log — append only
+
+model AuditLog {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  action      String   @db.VarChar(100)   // e.g. USER_LOGIN, FARM_CREATE
+  resourceType String? @map("resource_type") @db.VarChar(50)
+  resourceId  String?  @map("resource_id") @db.VarChar(36)
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  userAgent   String?  @map("user_agent") @db.VarChar(500)
+  // Metadata: non-sensitive context only
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

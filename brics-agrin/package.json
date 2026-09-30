@@ -1,0 +1,23 @@
+{
+  "name": "brics-agrin",
+  "version": "1.0.0",
+  "description": "BRICS AgriN — Digital Agriculture Network for Small and Marginal Farmers",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev:api": "npm run dev -w packages/api",
+    "dev:web": "npm run dev -w packages/web",
+    "lint": "npm run lint --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces",
+    "test:api": "npm run test -w packages/api",
+    "test:web": "npm run test -w packages/web"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=9.0.0"
+  }
+}

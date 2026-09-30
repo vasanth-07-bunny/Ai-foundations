@@ -1,0 +1,39 @@
+# Never copy secrets into Docker build context
+.env
+.env.*
+!.env.example
+
+# VCS
+.git
+.gitignore
+
+# Dependencies (reinstalled inside container)
+**/node_modules
+
+# Build outputs (rebuilt inside container)
+**/dist
+**/build
+**/.next
+
+# Test files (not needed in production image)
+**/tests
+**/*.test.ts
+**/*.spec.ts
+**/coverage
+
+# IDE
+.vscode
+.idea
+**/*.swp
+
+# Logs
+**/*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary uploads (use object storage in production)
+uploads/
+tmp/

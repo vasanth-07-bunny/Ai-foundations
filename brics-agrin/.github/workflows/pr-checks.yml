@@ -1,0 +1,57 @@
+# PR quality checklist — lightweight checks run on every PR
+# These are fast checks that give early feedback before full CI.
+
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  pr-title:
+    name: PR Title Convention
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title format
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          if echo "$TITLE" | grep -qE '^(feat|fix|docs|refactor|test|chore|perf|security)(\(.+\))?: .{3,}'; then
+            echo "PR title format is valid. ✓"
+          else
+            echo "ERROR: PR title must follow conventional commits format."
+            echo "Examples: feat(advisory): add soil health rules"
+            echo "          fix(auth): prevent timing attack on login"
+            echo "          test(diagnostic): add pipeline edge cases"
+            exit 1
+          fi
+
+  no-todo-fixme:
+    name: No TODO/FIXME in production code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for TODO/FIXME comments
+        run: |
+          # Allow TODO/FIXME in test files and this workflow — flag in src/
+          if grep -rn --include="*.ts" --include="*.tsx" \
+            --exclude-dir=tests --exclude-dir=node_modules --exclude-dir=dist \
+            "TODO\|FIXME" packages/api/src packages/web/src packages/shared/src 2>/dev/null; then
+            echo "WARNING: TODO/FIXME comments found in production code."
+            echo "Resolve these before merging or convert to GitHub issues."
+            # Not blocking — warn only
+          else
+            echo "No TODO/FIXME in production code. ✓"
+          fi
+
+  file-size:
+    name: Large File Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check no large files committed
+        run: |
+          # Flag files over 1MB (images, binaries, datasets)
+          find . -not -path './.git/*' -not -path './node_modules/*' \
+            -size +1M -type f | while read f; do
+            echo "WARNING: Large file: $f ($(du -sh "$f" | cut -f1))"
+          done

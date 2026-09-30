@@ -1,0 +1,14 @@
+{
+  "name": "brics-agrin-demo",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "BRICS AgriN — Standalone demo server (no infrastructure required)",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "4.19.2",
+    "cors": "2.8.5",
+    "compression": "1.7.4"
+  }
+}

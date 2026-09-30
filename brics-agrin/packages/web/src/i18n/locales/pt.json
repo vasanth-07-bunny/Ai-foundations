@@ -1,0 +1,64 @@
+{
+  "app": { "name": "BRICS AgriN", "tagline": "Consultoria agrícola com IA" },
+  "nav": {
+    "dashboard": "Painel",
+    "farms": "Minhas Fazendas",
+    "advisory": "Consultoria",
+    "diagnostics": "Diagnóstico de Culturas",
+    "profile": "Perfil",
+    "logout": "Sair"
+  },
+  "auth": {
+    "login": "Entrar",
+    "register": "Criar Conta",
+    "email": "Endereço de e-mail",
+    "password": "Senha",
+    "loginButton": "Entrar",
+    "registerButton": "Criar conta",
+    "noAccount": "Não tem uma conta?",
+    "hasAccount": "Já tem uma conta?",
+    "loggingIn": "Entrando...",
+    "registering": "Criando conta..."
+  },
+  "dashboard": {
+    "welcome": "Bem-vindo de volta",
+    "yourFarms": "Suas Fazendas",
+    "latestAdvisory": "Última Consultoria",
+    "noAdvisory": "Nenhuma consultoria disponível ainda.",
+    "noFarms": "Nenhuma fazenda registrada ainda.",
+    "generateAdvisory": "Obter Consultoria",
+    "diagnoseCrop": "Diagnosticar Cultura"
+  },
+  "farm": {
+    "title": "Fazendas",
+    "addFarm": "Adicionar Fazenda",
+    "name": "Nome da fazenda",
+    "save": "Salvar",
+    "cancel": "Cancelar"
+  },
+  "advisory": {
+    "title": "Consultoria Agrícola",
+    "generate": "Gerar Consultoria",
+    "recommendation": "Recomendação",
+    "reason": "Por que esta recomendação?",
+    "confidence": "Confiança",
+    "noAdvisory": "Nenhuma consultoria gerada."
+  },
+  "diagnostic": {
+    "title": "Diagnóstico de Doenças em Culturas",
+    "upload": "Enviar imagem da cultura",
+    "submit": "Enviar para análise",
+    "disclaimer": "Aviso importante"
+  },
+  "common": {
+    "loading": "Carregando...",
+    "error": "Ocorreu um erro",
+    "retry": "Tentar novamente",
+    "back": "Voltar",
+    "offline": "Você está offline. Exibindo dados em cache."
+  },
+  "errors": {
+    "network": "Erro de rede. Verifique sua conexão.",
+    "unauthorized": "Sua sessão expirou. Faça login novamente."
+  }
+}

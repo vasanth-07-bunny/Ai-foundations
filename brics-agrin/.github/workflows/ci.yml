@@ -1,0 +1,255 @@
+# BRICS AgriN — CI Quality Gate
+#
+# Every pull request and push to main must pass ALL gates before merge:
+#   1. Lint (ESLint)
+#   2. Type check (tsc --noEmit)
+#   3. Unit tests (Vitest)
+#   4. Integration/API/Security tests (Vitest)
+#   5. Build (tsc)
+#   6. Secret scanning (detect-secrets / gitleaks)
+#   7. Dependency audit (npm audit)
+#   8. Frontend build verification
+#
+# A PR is NOT merge-ready if any step fails.
+
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 1: Shared package — types and schemas
+  # ────────────────────────────────────────────────────────────────────────────
+  shared:
+    name: Shared Package — Typecheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: packages/shared
+
+      - name: Type check
+        run: npm run typecheck
+        working-directory: packages/shared
+
+      - name: Build
+        run: npm run build
+        working-directory: packages/shared
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 2: API — lint, typecheck, test, build
+  # ────────────────────────────────────────────────────────────────────────────
+  api:
+    name: API — Lint · Typecheck · Test · Build
+    runs-on: ubuntu-latest
+    needs: shared
+
+    services:
+      # Redis for integration tests that need a real cache
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://test:test@localhost:5432/agrin_test
+      REDIS_URL: redis://localhost:6379/1
+      JWT_ACCESS_SECRET: ci-test-access-secret-min-32-chars-0000
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-min-32-chars-000
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN_DAYS: 7
+      PORT: 3001
+      CORS_ORIGINS_RAW: http://localhost:5173
+      OBJECT_STORAGE_BUCKET: agrin-test
+      OBJECT_STORAGE_REGION: us-east-1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install API dependencies
+        run: npm ci
+        working-directory: packages/api
+
+      - name: Install Shared dependencies and build
+        run: npm ci && npm run build
+        working-directory: packages/shared
+
+      - name: Lint
+        run: npm run lint
+        working-directory: packages/api
+
+      - name: Type check
+        run: npm run typecheck
+        working-directory: packages/api
+
+      - name: Run tests (unit + API + security)
+        run: npm run test -- --reporter=verbose
+        working-directory: packages/api
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-coverage
+          path: packages/api/coverage/
+          retention-days: 7
+
+      - name: Build
+        run: npm run build
+        working-directory: packages/api
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 3: Web — lint, typecheck, build
+  # ────────────────────────────────────────────────────────────────────────────
+  web:
+    name: Web — Lint · Typecheck · Build
+    runs-on: ubuntu-latest
+    needs: shared
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Shared dependencies and build
+        run: npm ci && npm run build
+        working-directory: packages/shared
+
+      - name: Install Web dependencies
+        run: npm ci
+        working-directory: packages/web
+
+      - name: Lint
+        run: npm run lint
+        working-directory: packages/web
+
+      - name: Type check
+        run: npm run typecheck
+        working-directory: packages/web
+
+      - name: Build (verifies no broken imports)
+        run: npm run build
+        working-directory: packages/web
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 4: Security scanning
+  # ────────────────────────────────────────────────────────────────────────────
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secret scanning
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # Scan for accidentally committed secrets
+      - name: Run gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Check for .env files committed to the repo
+      - name: Check no .env files committed
+        run: |
+          if git ls-files | grep -E '\.env$|\.env\.local$|\.env\.production$'; then
+            echo "ERROR: .env files found in repository! Remove them immediately."
+            exit 2
+          fi
+          echo "No .env files found in repository. ✓"
+
+      # Verify .env.example has no real secrets (no values, only placeholders)
+      - name: Verify .env.example contains no real secrets
+        run: |
+          if grep -E '(sk-[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})' .env.example; then
+            echo "ERROR: .env.example appears to contain real secrets!"
+            exit 2
+          fi
+          echo ".env.example secret check passed. ✓"
+
+      - name: Install root dependencies for audit
+        run: npm ci --ignore-scripts
+        continue-on-error: true
+
+      # Dependency vulnerability audit
+      - name: npm audit (API)
+        run: npm audit --audit-level=high
+        working-directory: packages/api
+        continue-on-error: true  # Report but don't block — transitive deps may have no fix
+
+      - name: npm audit (Web)
+        run: npm audit --audit-level=high
+        working-directory: packages/web
+        continue-on-error: true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 5: Docker build verification
+  # ────────────────────────────────────────────────────────────────────────────
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [api, web]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./packages/api/Dockerfile
+          push: false
+          tags: brics-agrin-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Web image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./packages/web/Dockerfile
+          push: false
+          tags: brics-agrin-web:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

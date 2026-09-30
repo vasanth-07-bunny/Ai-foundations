@@ -1,0 +1,77 @@
+{
+  "app": { "name": "BRICS AgriN", "tagline": "AI-संचालित कृषि परामर्श" },
+  "nav": {
+    "dashboard": "डैशबोर्ड",
+    "farms": "मेरे खेत",
+    "advisory": "सलाह",
+    "diagnostics": "फसल निदान",
+    "profile": "प्रोफ़ाइल",
+    "logout": "लॉग आउट"
+  },
+  "auth": {
+    "login": "साइन इन",
+    "register": "खाता बनाएं",
+    "email": "ईमेल पता",
+    "password": "पासवर्ड",
+    "confirmPassword": "पासवर्ड की पुष्टि करें",
+    "language": "पसंदीदा भाषा",
+    "country": "देश",
+    "loginButton": "साइन इन करें",
+    "registerButton": "खाता बनाएं",
+    "noAccount": "खाता नहीं है?",
+    "hasAccount": "पहले से खाता है?",
+    "loggingIn": "साइन इन हो रहा है...",
+    "registering": "खाता बन रहा है..."
+  },
+  "dashboard": {
+    "welcome": "वापस स्वागत है",
+    "yourFarms": "आपके खेत",
+    "latestAdvisory": "नवीनतम सलाह",
+    "noAdvisory": "अभी तक कोई सलाह उपलब्ध नहीं है।",
+    "noFarms": "अभी तक कोई खेत दर्ज नहीं है।",
+    "addFarm": "अपना पहला खेत जोड़ें",
+    "generateAdvisory": "सलाह प्राप्त करें",
+    "diagnoseCrop": "फसल निदान",
+    "dataNotice": "दिखाया गया डेटा उपलब्ध जानकारी पर आधारित है।"
+  },
+  "farm": {
+    "title": "खेत",
+    "addFarm": "खेत जोड़ें",
+    "name": "खेत का नाम",
+    "area": "क्षेत्र (हेक्टेयर)",
+    "country": "देश",
+    "irrigation": "सिंचाई प्रकार",
+    "practice": "कृषि पद्धति",
+    "saving": "सहेजा जा रहा है...",
+    "save": "सहेजें",
+    "cancel": "रद्द करें"
+  },
+  "advisory": {
+    "title": "कृषि सलाह",
+    "generate": "सलाह उत्पन्न करें",
+    "generating": "उत्पन्न हो रहा है...",
+    "recommendation": "अनुशंसा",
+    "reason": "यह अनुशंसा क्यों?",
+    "actionTiming": "कब कार्य करें",
+    "confidence": "विश्वास स्तर",
+    "noAdvisory": "कोई सलाह उत्पन्न नहीं हुई।"
+  },
+  "diagnostic": {
+    "title": "फसल रोग निदान",
+    "upload": "फसल की छवि अपलोड करें",
+    "submit": "विश्लेषण के लिए भेजें",
+    "submitting": "भेजा जा रहा है...",
+    "disclaimer": "महत्वपूर्ण सूचना"
+  },
+  "common": {
+    "loading": "लोड हो रहा है...",
+    "error": "एक त्रुटि हुई",
+    "retry": "पुनः प्रयास करें",
+    "back": "वापस",
+    "offline": "आप ऑफलाइन हैं। कैश किया गया डेटा दिखाया जा रहा है।"
+  },
+  "errors": {
+    "network": "नेटवर्क त्रुटि। कृपया अपना कनेक्शन जांचें।",
+    "unauthorized": "आपका सत्र समाप्त हो गया है। कृपया पुनः साइन इन करें।"
+  }
+}
